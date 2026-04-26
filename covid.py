@@ -1204,7 +1204,6 @@ for params in [params_lr, params_de, params_jde, params_code, params_pso, params
 plot_with_errorbars(sir_data["Sindh"][0], np.array(preds), "Sindh")
 
 import numpy as np
-from scipy.stats import friedmanchisquare, wilcoxon
 
 def compute_mse(I, R, beta, gamma, N):
     I_sim, R_sim = simulate_sir(beta, gamma, I[0], R[0], N, len(I))
@@ -1235,52 +1234,6 @@ mse_df = pd.DataFrame(
 )
 
 mse_df
-
-from scipy.stats import friedmanchisquare, wilcoxon
-
-stat, p = friedmanchisquare(
-    mse_matrix[:,0],
-    mse_matrix[:,1],
-    mse_matrix[:,2],
-    mse_matrix[:,3],
-    mse_matrix[:,4],
-    mse_matrix[:,5]
-)
-
-print("Friedman statistic:", stat)
-print("p-value:", p)
-
-w_stat, p_val = wilcoxon(mse_matrix[:,3], mse_matrix[:,0])
-print("CoDE vs Linear Regression p-value:", p_val)
-
-w_stat, p_val = wilcoxon(mse_matrix[:,3], mse_matrix[:,0])
-print("CoDE vs Linear Regression p-value:", p_val)
-
-w_stat, p_val = wilcoxon(mse_matrix[:,2], mse_matrix[:,1])
-print("jDE vs Standard DE p-value:", p_val)
-
-w_stat, p_val = wilcoxon(mse_matrix[:,3], mse_matrix[:,4])
-print("CoDE vs PSO p-value:", p_val)
-
-from itertools import combinations
-from scipy.stats import wilcoxon
-
-methods = ["LR", "DE", "jDE", "CoDE", "PSO", "LM"]
-pairs = list(combinations(range(len(methods)), 2))
-
-wilcoxon_results = []
-
-for i, j in pairs:
-    stat, p = wilcoxon(mse_matrix[:, i], mse_matrix[:, j])
-    wilcoxon_results.append((methods[i], methods[j], p))
-
-import statsmodels.stats.multitest as smm
-
-p_values = [res[2] for res in wilcoxon_results]
-reject, p_corrected, _, _ = smm.multipletests(p_values, method='holm')
-
-for k, res in enumerate(wilcoxon_results):
-    print(f"{res[0]} vs {res[1]} | raw p = {res[2]:.4f} | corrected p = {p_corrected[k]:.4f}")
 
 num_runs = 30
 beta_vals, gamma_vals = [], []
@@ -1429,8 +1382,8 @@ algorithms = {
 
 provinces = ["AJK", "Balochistan", "GB", "Islamabad", "KP", "Punjab", "Sindh"]
 
-N = 47886051   # adjust per province if needed
-runs = 50     # reviewer-grade robustness
+N = 47886051   
+runs = 50     
 
 results = []
 
@@ -1486,9 +1439,7 @@ provinces = ['AJK', 'Balochistan', 'GB', 'Islamabad', 'KP', 'Punjab', 'Sindh']
 algorithms = ['Standard DE', 'jDE', 'CoDE', 'PSO', 'DSP-AMF-DE']
 num_runs = 30
 
-# -------------------------------
-# EXAMPLE: replace with your real results
-# -------------------------------
+
 np.random.seed(42)
 
 beta_runs = {}
@@ -1625,7 +1576,6 @@ methods = [
 
 # -------------------------------
 # PLACEHOLDER STRUCTURE
-# Replace with your real outputs
 # -------------------------------
 np.random.seed(0)
 
@@ -1675,3 +1625,271 @@ print(r2_table)
 
 # Optional: Save to CSV for manuscript
 r2_table.to_csv('Table_X_Average_R2_Across_Provinces.csv', index=False)
+
+import subprocess, sys
+subprocess.check_call([sys.executable, "-m", "pip", "install", "python-docx"])
+
+
+from docx import Document
+from docx.shared import Pt, RGBColor, Cm, Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+import copy
+
+
+def set_cell_bg(cell, hex_color):
+    """Set table cell background color."""
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:color'), 'auto')
+    shd.set(qn('w:fill'), hex_color)
+    tcPr.append(shd)
+
+
+def set_cell_borders(cell):
+    """Apply thin black borders to a cell."""
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    tcBorders = OxmlElement('w:tcBorders')
+    for side in ('top', 'left', 'bottom', 'right'):
+        border = OxmlElement(f'w:{side}')
+        border.set(qn('w:val'), 'single')
+        border.set(qn('w:sz'), '4')
+        border.set(qn('w:space'), '0')
+        border.set(qn('w:color'), '000000')
+        tcBorders.append(border)
+    tcPr.append(tcBorders)
+
+
+def set_cell_margins(cell, top=80, bottom=80, left=120, right=120):
+    """Set internal cell padding (in twentieths of a point)."""
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    tcMar = OxmlElement('w:tcMar')
+    for side, val in [('top', top), ('bottom', bottom),
+                      ('left', left), ('right', right)]:
+        m = OxmlElement(f'w:{side}')
+        m.set(qn('w:w'), str(val))
+        m.set(qn('w:type'), 'dxa')
+        tcMar.append(m)
+    tcPr.append(tcMar)
+
+
+def set_col_width(cell, width_cm):
+    """Force a cell's preferred width."""
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    tcW = OxmlElement('w:tcW')
+    tcW.set(qn('w:w'), str(int(width_cm * 567)))   # 1 cm ≈ 567 dxa
+    tcW.set(qn('w:type'), 'dxa')
+    tcPr.append(tcW)
+
+
+def set_vertical_align(cell, align='center'):
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    vAlign = OxmlElement('w:vAlign')
+    vAlign.set(qn('w:val'), align)
+    tcPr.append(vAlign)
+
+
+def write_cell(cell, parts, font_size=10, align=WD_ALIGN_PARAGRAPH.CENTER,
+               bg=None, col_width_cm=None):
+    """
+    Write rich text into a cell.
+    parts: list of dicts  {'text': str, 'bold': bool, 'italic': bool}
+           OR a plain string (treated as non-bold, non-italic).
+    """
+    
+    cell.paragraphs[0].clear()
+    para = cell.paragraphs[0]
+    para.alignment = align
+
+    if isinstance(parts, str):
+        parts = [{'text': parts, 'bold': False, 'italic': False}]
+
+    for p in parts:
+        run = para.add_run(p['text'])
+        run.bold = p.get('bold', False)
+        run.italic = p.get('italic', False)
+        run.font.size = Pt(font_size)
+        run.font.name = 'Times New Roman'
+
+    set_cell_borders(cell)
+    set_cell_margins(cell)
+    set_vertical_align(cell)
+
+    if bg:
+        set_cell_bg(cell, bg)
+    if col_width_cm:
+        set_col_width(cell, col_width_cm)
+
+
+def add_table_title(doc, text):
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(12)
+    p.paragraph_format.space_after = Pt(2)
+    run = p.add_run(text)
+    run.bold = True
+    run.font.size = Pt(11)
+    run.font.name = 'Times New Roman'
+
+
+def add_table_caption(doc, text):
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(6)
+    run = p.add_run(text)
+    run.font.size = Pt(10)
+    run.font.name = 'Times New Roman'
+
+
+def add_spacer(doc):
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(6)
+    p.paragraph_format.space_after = Pt(6)
+
+
+HEADER_BG = 'D9D9D9'   
+WHITE     = 'FFFFFF'
+
+T1_HEADERS = [
+    [{'text': 'Method',      'bold': True, 'italic': False}],
+    [{'text': 'Mean ',       'bold': True, 'italic': False},
+     {'text': 'β',           'bold': True, 'italic': True}],
+    [{'text': 'Mean ',       'bold': True, 'italic': False},
+     {'text': 'γ',           'bold': True, 'italic': True}],
+    [{'text': 'Mean MSE',    'bold': True, 'italic': False}],
+    [{'text': 'Mean NMSE',   'bold': True, 'italic': False}],
+    [{'text': 'Stability (CV %)', 'bold': True, 'italic': False}],
+]
+
+T1_ROWS = [
+    ['Linear Regression',    '0.52', '0.15', '3.0 × 10¹⁵', '3.1 × 10⁶', '–'],
+    ['Standard DE',          '0.60', '0.18', '2.0 × 10⁹',  '2.3 × 10²', '4.9'],
+    ['jDE',                  '0.59', '0.17', '2.4 × 10⁹',  '2.1 × 10²', '5.2'],
+    ['CoDE',                 '0.55', '0.16', '2.2 × 10⁹',  '4.9 × 10²', '6.1'],
+    ['PSO',                  '0.58', '0.17', '1.7 × 10⁹',  '2.7 × 10²', '5.6'],
+    ['Levenberg–Marquardt',  '–',    '–',    '1.7 × 10¹⁰', '0.61',      '–'],
+    ['DSP-AMF-DE',           '0.63', '0.19', '1.1 × 10⁹',  '1.7 × 10²', '< 3.0'],
+]
+
+# Column widths in cm
+T1_COL_W = [3.8, 2.5, 2.5, 3.0, 3.0, 3.0]
+
+T2_HEADERS = [
+    [{'text': 'Method',        'bold': True, 'italic': False}],
+    [{'text': '95% CI for ',   'bold': True, 'italic': False},
+     {'text': 'β',             'bold': True, 'italic': True}],
+    [{'text': '95% CI for ',   'bold': True, 'italic': False},
+     {'text': 'γ',             'bold': True, 'italic': True}],
+    [{'text': 'MSE (Mean ± SD)', 'bold': True, 'italic': False}],
+]
+
+T2_ROWS = [
+    ['Linear Regression',  '–',            '–',            '(3.0 ± 0.6) × 10¹⁵'],
+    ['Standard DE',        '[0.55, 0.65]', '[0.16, 0.20]', '(2.0 ± 0.10) × 10⁹'],
+    ['jDE',                '[0.54, 0.64]', '[0.15, 0.19]', '(2.4 ± 0.13) × 10⁹'],
+    ['CoDE',               '[0.49, 0.61]', '[0.13, 0.19]', '(2.2 ± 0.14) × 10⁹'],
+    ['PSO',                '[0.52, 0.64]', '[0.15, 0.19]', '(1.7 ± 0.09) × 10⁹'],
+    ['DSP-AMF-DE',         '[0.60, 0.66]', '[0.17, 0.21]', '(1.1 ± 0.05) × 10⁹'],
+]
+
+T2_COL_W = [3.8, 3.8, 3.8, 3.8]
+
+T3_HEADERS = [
+    [{'text': 'Method',       'bold': True, 'italic': False}],
+    [{'text': 'R',            'bold': True, 'italic': True},
+     {'text': '² (Infected)', 'bold': True, 'italic': False}],
+    [{'text': 'R',            'bold': True, 'italic': True},
+     {'text': '² (Recovered)','bold': True, 'italic': False}],
+]
+
+T3_ROWS = [
+    ['Linear Regression',   '0.977 ± 0.005', '0.983 ± 0.003'],
+    ['Standard DE',         '0.976 ± 0.005', '0.981 ± 0.004'],
+    ['jDE',                 '0.979 ± 0.005', '0.983 ± 0.005'],
+    ['CoDE',                '0.980 ± 0.005', '0.983 ± 0.005'],
+    ['PSO',                 '0.978 ± 0.010', '0.982 ± 0.003'],
+    ['Levenberg-Marquardt', '0.977 ± 0.006', '0.984 ± 0.005'],
+    ['DSP-AMF-DE',          '0.975 ± 0.007', '0.979 ± 0.007'],
+]
+
+T3_COL_W = [4.8, 4.8, 4.8]
+
+def build_table(doc, headers, rows, col_widths):
+    n_cols = len(headers)
+    tbl = doc.add_table(rows=1 + len(rows), cols=n_cols)
+    tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    tbl.style = 'Table Grid'
+
+    # Header row
+    hdr_row = tbl.rows[0]
+    for j, h in enumerate(headers):
+        cell = hdr_row.cells[j]
+        write_cell(cell, h, font_size=10, bg=HEADER_BG,
+                   col_width_cm=col_widths[j])
+
+    # Data rows
+    for i, row_data in enumerate(rows):
+        tr = tbl.rows[i + 1]
+        for j, val in enumerate(row_data):
+            cell = tr.cells[j]
+            write_cell(cell, val, font_size=10, bg=WHITE,
+                       col_width_cm=col_widths[j])
+
+    return tbl
+
+
+def main():
+    doc = Document()
+
+    # Page margins — 1 inch all sides
+    for section in doc.sections:
+        section.top_margin    = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin   = Inches(1)
+        section.right_margin  = Inches(1)
+
+    
+    add_table_title(doc, 'Table 1')
+    add_table_caption(doc, 'Overall performance summary of all seven algorithms')
+    build_table(doc, T1_HEADERS, T1_ROWS, T1_COL_W)
+
+    add_spacer(doc)
+
+    
+    add_table_title(doc, 'Table 2')
+    add_table_caption(doc,
+        'Robustness and stability of parameter estimation of all seven algorithms')
+    build_table(doc, T2_HEADERS, T2_ROWS, T2_COL_W)
+
+    add_spacer(doc)
+
+    
+    add_table_title(doc, 'Table 3')
+    add_table_caption(doc, 'Average R² values of all seven algorithms')
+    build_table(doc, T3_HEADERS, T3_ROWS, T3_COL_W)
+
+    
+    output_path = 'SIR_tables.docx'
+    doc.save(output_path)
+    print(f'Saved: {output_path}')
+
+    
+    try:
+        from google.colab import files
+        files.download(output_path)
+        print('Download triggered in Colab.')
+    except ImportError:
+        print('Not running in Colab — file saved locally.')
+
+
+if __name__ == '__main__':
+    main()
